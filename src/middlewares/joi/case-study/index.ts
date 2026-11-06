@@ -1,6 +1,6 @@
 import Joi from 'joi';
 import { validateRequest } from '../validate.js';
-import { mediaIdRule, dateRule, idRule, slugRule } from '../common.js';
+import { mediaIdRule, dateRule, idRule } from '../common.js';
 
 const CATEGORIES = ['CRM', 'Software Development', 'AI & Automation', 'Cloud', 'ITSM', 'Managed IT'];
 
@@ -25,7 +25,6 @@ const tagsRule = Joi.array().items(Joi.string().trim().max(40)).max(10).messages
 
 const createCaseStudySchema = Joi.object({
   title: Joi.string().trim().max(200).required().messages({ 'any.required': 'Title is required', 'string.empty': 'Title is required' }),
-  slug: slugRule.max(200).optional(),
   client: Joi.string().trim().max(100).required().messages({ 'any.required': 'Client is required', 'string.empty': 'Client is required' }),
   category: Joi.string().valid(...CATEGORIES).required().messages({ 'any.only': `Category must be one of: ${CATEGORIES.join(', ')}` }),
   description: Joi.string().trim().max(400).required().messages({ 'any.required': 'Description is required', 'string.empty': 'Description is required' }),
@@ -45,7 +44,6 @@ const createCaseStudySchema = Joi.object({
 const updateCaseStudySchema = Joi.object({
   id: idRule,
   title: Joi.string().trim().max(200).optional(),
-  slug: slugRule.max(200).optional(),
   client: Joi.string().trim().max(100).optional(),
   category: Joi.string().valid(...CATEGORIES).optional(),
   description: Joi.string().trim().max(400).optional(),

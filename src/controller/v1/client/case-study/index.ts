@@ -1,7 +1,7 @@
 import { Response } from 'express';
 import { makeResponse } from '../../../../lib/response/index.js';
 import { IRequest } from '../../../../lib/index.js';
-import { buildMeta, generateSlug, parsePagination, toDate, wrapController } from '../../../../utils/index.js';
+import { buildMeta, parsePagination, toDate, wrapController } from '../../../../utils/index.js';
 import {
   assertMediaExists,
   createCaseStudy,
@@ -10,16 +10,17 @@ import {
   findCaseStudy,
   mediaConnect,
   mediaLink,
+  uniqueSlug,
   updateCaseStudy,
 } from '../../../../services/index.js';
 
 const createHandler = async (req: IRequest, res: Response) => {
-  const { title, slug, client, category, description, imageId, content, tags, results, readTime, publishStatus, publishedAt, status } = req.body;
+  const { title, client, category, description, imageId, content, tags, results, readTime, publishStatus, publishedAt, status } = req.body;
 
   await assertMediaExists([imageId]);
   const caseStudy = await createCaseStudy({
     title,
-    slug: slug || generateSlug(title),
+    slug: await uniqueSlug('caseStudy', title, 160), // server-generated; never changes after creation
     client,
     category,
     description,
@@ -64,7 +65,7 @@ const findCaseStudyHandler = async (req: IRequest, res: Response) => {
 };
 
 const updateHandler = async (req: IRequest, res: Response) => {
-  const { id, title, slug, client, category, description, imageId, content, tags, results, readTime, publishStatus, publishedAt, status } = req.body;
+  const { id, title, client, category, description, imageId, content, tags, results, readTime, publishStatus, publishedAt, status } = req.body;
   if (!(await findCaseStudy({ id }))) return makeResponse(req, res, 404, false, 'not_exist');
   await assertMediaExists([imageId]);
 
@@ -72,7 +73,6 @@ const updateHandler = async (req: IRequest, res: Response) => {
     { id },
     {
       ...(title !== undefined && { title }),
-      ...(slug !== undefined && { slug }),
       ...(client !== undefined && { client }),
       ...(category !== undefined && { category }),
       ...(description !== undefined && { description }),

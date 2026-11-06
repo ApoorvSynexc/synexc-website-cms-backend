@@ -1,7 +1,7 @@
 import { Response } from 'express';
 import { makeResponse } from '../../../../lib/response/index.js';
 import { IRequest } from '../../../../lib/index.js';
-import { buildMeta, generateSlug, parsePagination, toDate, wrapController } from '../../../../utils/index.js';
+import { buildMeta, parsePagination, toDate, wrapController } from '../../../../utils/index.js';
 import {
   assertMediaExists,
   createBlog,
@@ -11,18 +11,19 @@ import {
   findBlogsWithPagination,
   mediaConnect,
   mediaLink,
+  uniqueSlug,
   updateBlog,
 } from '../../../../services/index.js';
 
 const createHandler = async (req: IRequest, res: Response) => {
-  const { title, slug, excerpt, content, categoryId, author, featuredImageId, publishStatus, publishedAt, status } = req.body;
+  const { title, excerpt, content, categoryId, author, featuredImageId, publishStatus, publishedAt, status } = req.body;
 
   if (!(await findBlogCategory({ id: categoryId }))) return makeResponse(req, res, 400, false, 'invalid_reference');
   await assertMediaExists([featuredImageId]);
 
   const blog = await createBlog({
     title,
-    slug: slug || generateSlug(title),
+    slug: await uniqueSlug('blog', title, 160), // server-generated; never changes after creation so URLs stay stable
     excerpt,
     content,
     author,
@@ -64,7 +65,7 @@ const findBlogHandler = async (req: IRequest, res: Response) => {
 };
 
 const updateHandler = async (req: IRequest, res: Response) => {
-  const { id, title, slug, excerpt, content, categoryId, author, featuredImageId, publishStatus, publishedAt, status } = req.body;
+  const { id, title, excerpt, content, categoryId, author, featuredImageId, publishStatus, publishedAt, status } = req.body;
   if (!(await findBlog({ id }))) return makeResponse(req, res, 404, false, 'not_exist');
 
   await assertMediaExists([featuredImageId]);
@@ -76,7 +77,6 @@ const updateHandler = async (req: IRequest, res: Response) => {
     { id },
     {
       ...(title !== undefined && { title }),
-      ...(slug !== undefined && { slug }),
       ...(excerpt !== undefined && { excerpt }),
       ...(content !== undefined && { content }),
       ...(author !== undefined && { author }),

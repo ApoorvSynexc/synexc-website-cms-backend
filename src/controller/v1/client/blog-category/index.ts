@@ -1,21 +1,22 @@
 import { Response } from 'express';
 import { makeResponse } from '../../../../lib/response/index.js';
 import { IRequest } from '../../../../lib/index.js';
-import { generateSlug, wrapController } from '../../../../utils/index.js';
+import { wrapController } from '../../../../utils/index.js';
 import {
   countBlogs,
   createBlogCategory,
   deleteBlogCategory,
   findBlogCategories,
   findBlogCategory,
+  uniqueSlug,
   updateBlogCategory,
 } from '../../../../services/index.js';
 
 const createHandler = async (req: IRequest, res: Response) => {
-  const { name, slug, description } = req.body;
+  const { name, description } = req.body;
   const category = await createBlogCategory({
     name,
-    slug: slug || generateSlug(name),
+    slug: await uniqueSlug('blogCategory', name, 100),
     description: description || undefined,
     ...(req.user?.id && { createdBy: { connect: { id: req.user.id } } }),
   });
@@ -35,14 +36,13 @@ const findCategoryHandler = async (req: IRequest, res: Response) => {
 };
 
 const updateHandler = async (req: IRequest, res: Response) => {
-  const { id, name, slug, description, status } = req.body;
+  const { id, name, description, status } = req.body;
   if (!(await findBlogCategory({ id }))) return makeResponse(req, res, 404, false, 'not_exist');
 
   const category = await updateBlogCategory(
     { id },
     {
       ...(name !== undefined && { name }),
-      ...(slug !== undefined && { slug }),
       ...(description !== undefined && { description: description || null }),
       ...(status && { status }),
     },

@@ -1,6 +1,6 @@
 import Joi from 'joi';
 import { validateRequest } from '../validate.js';
-import { mediaIdRule, dateRule, idRule, slugRule } from '../common.js';
+import { mediaIdRule, dateRule, idRule } from '../common.js';
 
 /** HTML from the rich-text editor: must contain real text (or an image), not just empty tags. */
 const htmlContent = Joi.string()
@@ -16,7 +16,6 @@ const createBlogSchema = Joi.object({
     'any.required': 'Title is required',
     'string.empty': 'Title is required',
   }),
-  slug: slugRule.optional(), // generated from the title when omitted
   excerpt: Joi.string().trim().max(300).required().messages({
     'string.max': 'Excerpt must be at most 300 characters',
     'any.required': 'Excerpt is required',
@@ -38,7 +37,6 @@ const createBlogSchema = Joi.object({
 const updateBlogSchema = Joi.object({
   id: idRule,
   title: Joi.string().trim().max(150).optional(),
-  slug: slugRule.optional(),
   excerpt: Joi.string().trim().max(300).optional(),
   content: htmlContent.optional(),
   categoryId: Joi.string().trim().optional(),

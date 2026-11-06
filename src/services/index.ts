@@ -7,6 +7,7 @@ export * from './media/index.js';
 export * from './dashboard/index.js';
 export * from './blog-category/index.js';
 export * from './blog/index.js';
+export * from './slug/index.js';
 export * from './case-study/index.js';
 export * from './announcement/index.js';
 export * from './site-setting/index.js';
