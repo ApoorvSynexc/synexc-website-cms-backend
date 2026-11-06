@@ -75,12 +75,22 @@ const replaceRolePermissions = (roleId: string, permissionIds: string[], granted
         });
       }
 
-      // Grant (or re-activate) what is wanted.
-      for (const permissionId of wanted) {
-        await tx.rolePermission.upsert({
-          where: { roleId_permissionId: { roleId, permissionId } },
-          create: { roleId, permissionId, createdById: grantedById },
-          update: { status: 'ACTIVE', deletedAt: null, createdById: grantedById },
+      // Re-activate previously revoked grants (one query).
+      const toReactivate = existing.filter((row) => row.status !== 'ACTIVE' && wanted.has(row.permissionId));
+      if (toReactivate.length > 0) {
+        await tx.rolePermission.updateMany({
+          where: { id: { in: toReactivate.map((row) => row.id) } },
+          data: { status: 'ACTIVE', deletedAt: null, createdById: grantedById },
+        });
+      }
+
+      // Grant what has never been granted (one query).
+      const known = new Set(existing.map((row) => row.permissionId));
+      const toCreate = [...wanted].filter((permissionId) => !known.has(permissionId));
+      if (toCreate.length > 0) {
+        await tx.rolePermission.createMany({
+          data: toCreate.map((permissionId) => ({ roleId, permissionId, createdById: grantedById })),
+          skipDuplicates: true,
         });
       }
 
