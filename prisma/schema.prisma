@@ -1,0 +1,587 @@
+// Synexc CMS — database schema (PostgreSQL via Prisma)
+//
+// ⚠️  FOR REVIEW — no migration has been created or run from this file.
+//
+// Conventions (same standard as the HRM backend):
+//   • every table has:  id (cuid) · status (ACTIVE | INACTIVE | DELETED) · createdAt · updatedAt · deletedAt
+//   • tables that people create through the CMS also have `createdById` → User (who created the row).
+//     It is nullable and ON DELETE SET NULL, so removing a user never deletes their content.
+//     Not on: Permission (seeded by the system), Session (system-created), SiteSetting (single seeded row).
+//   • `status` is the ROW status. Anything else that looks like a "status" in the UI lives in its own
+//     column with a clearer name (publishStatus, type, …) so the two never get mixed up.
+//   • DELETE IS SOFT: deleting only sets status = DELETED (and stamps deletedAt) — every other column keeps its
+//     value. Every read filters out DELETED. Because the row keeps its values, a deleted row still reserves its
+//     unique values (User.email, Role.name, BlogCategory.name/slug, Blog.slug, CaseStudy.slug).
+//   • FILES: every uploaded file (image, PDF …) is one row in Media — name, size, mimetype, S3 key, and a
+//     thumbnail key for images. Other tables never store a URL; they store the Media id (…Id columns).
+//   • single-tenant: unlike HRM there is no Tenant / tenantId.
+//   • `sortOrder` = position of an item in an ordered list on the website (the up/down arrows in the CMS).
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Enums
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Standard row status used by every table.
+enum Status {
+  ACTIVE
+  INACTIVE
+  DELETED
+}
+
+enum DeviceType {
+  WEB
+  IOS
+  ANDROID
+}
+
+enum SessionStatus {
+  ACTIVE
+  REVOKED
+  DELETED
+}
+
+/// Blogs and case studies: is the article live on the website?
+enum PublishStatus {
+  DRAFT
+  PUBLISHED
+}
+
+enum AnnouncementType {
+  POPUP
+  BANNER
+}
+
+enum PartnerPlacement {
+  PARTNER // "Our Trusted Partners" strip
+  CLIENT // client logos
+}
+
+enum PermissionAction {
+  read
+  create
+  update
+  delete
+}
+
+/// One value per module in the CMS permission matrix.
+enum PermissionSubject {
+  dashboard
+  blog
+  blog_category
+  case_study
+  announcement
+  hero_slide
+  testimonial
+  faq
+  partner_logo
+  team_member
+  timeline_event
+  certification
+  key_stat
+  gallery_image
+  site_settings
+  user
+  role
+  role_permission
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Access control — users, roles, permissions, sessions
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Role {
+  id          String    @id @default(cuid())
+  name        String    @unique
+  description String?
+  /// System roles (Admin) always have every permission and cannot be edited or deleted.
+  isSystem    Boolean   @default(false)
+  createdById String?
+  status      Status    @default(ACTIVE)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  createdBy       User?            @relation("RoleCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  users           User[]           @relation("UserRole")
+  rolePermissions RolePermission[]
+
+  @@index([createdById])
+}
+
+model Permission {
+  id          String            @id @default(cuid())
+  action      PermissionAction
+  subject     PermissionSubject
+  description String?
+  status      Status            @default(ACTIVE)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  deletedAt   DateTime?
+
+  rolePermissions RolePermission[]
+
+  @@unique([action, subject], name: "uk_action_subject")
+}
+
+model RolePermission {
+  id           String    @id @default(cuid())
+  roleId       String
+  permissionId String
+  /// Who granted this permission to the role.
+  createdById  String?
+  status       Status    @default(ACTIVE)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  createdBy  User?      @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@unique([roleId, permissionId])
+  @@index([roleId])
+  @@index([permissionId])
+  @@index([createdById])
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String
+  email         String    @unique
+  passwordHash  String
+  roleId        String
+  avatarId      String?
+  lastLoginAt   DateTime?
+  loginAttempts Int       @default(0)
+  lockedUntil   DateTime?
+  /// Which admin added this user (null for the seeded first admin).
+  createdById   String?
+  status        Status    @default(ACTIVE)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
+
+  role      Role   @relation("UserRole", fields: [roleId], references: [id], onDelete: Restrict)
+  createdBy User?  @relation("UserCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  avatar    Media? @relation("UserAvatar", fields: [avatarId], references: [id], onDelete: SetNull)
+
+  // ── back-references (no columns on this table) ──
+  createdUsers          User[]           @relation("UserCreatedBy")
+  sessions              Session[]
+  rolesCreated          Role[]           @relation("RoleCreatedBy")
+  rolePermissionsGiven  RolePermission[]
+  mediaCreated          Media[]          @relation("MediaCreatedBy")
+  blogCategoriesCreated BlogCategory[]
+  blogsCreated          Blog[]
+  caseStudiesCreated    CaseStudy[]
+  announcementsCreated  Announcement[]
+  heroSlidesCreated     HeroSlide[]
+  testimonialsCreated   Testimonial[]
+  faqsCreated           Faq[]
+  partnerLogosCreated   PartnerLogo[]
+  teamMembersCreated    TeamMember[]
+  timelineEventsCreated TimelineEvent[]
+  certificationsCreated Certification[]
+  keyStatsCreated       KeyStat[]
+  galleryImagesCreated  GalleryImage[]
+
+  @@index([roleId])
+  @@index([createdById])
+  @@index([avatarId])
+}
+
+model Session {
+  id         String        @id @default(cuid())
+  userId     String
+  deviceType DeviceType    @default(WEB)
+  status     SessionStatus @default(ACTIVE)
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+  deletedAt  DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Media — registry of files uploaded through POST /common/upload
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Media {
+  id           String    @id @default(cuid())
+  name         String
+  size         Int
+  /// S3 object key, e.g. "uploads/team_1700000000_object.jpg" (same convention as HRM).
+  url          String
+  /// S3 key of the thumbnail (images only; null for PDFs, SVGs …).
+  thumbnailUrl String?
+  mimetype     String
+  /// Who uploaded it.
+  createdById  String?
+  status       Status    @default(ACTIVE)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+
+  createdBy User? @relation("MediaCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  // ── back-references (no columns on this table): where this file is used ──
+  usersAvatar     User[]         @relation("UserAvatar")
+  blogs           Blog[]         @relation("BlogFeaturedImage")
+  caseStudies     CaseStudy[]    @relation("CaseStudyImage")
+  announcements   Announcement[] @relation("AnnouncementImage")
+  heroSlideImages HeroSlide[]    @relation("HeroSlideImage")
+  heroSlideLogos  HeroSlide[]    @relation("HeroSlideLogo")
+  testimonials    Testimonial[]  @relation("TestimonialAvatar")
+  partnerLogos    PartnerLogo[]  @relation("PartnerLogoImage")
+  teamMembers     TeamMember[]   @relation("TeamMemberPhoto")
+  galleryImages   GalleryImage[] @relation("GalleryImageImage")
+
+  @@index([createdById])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Blogs
+// ─────────────────────────────────────────────────────────────────────────────
+
+model BlogCategory {
+  id          String    @id @default(cuid())
+  name        String    @unique
+  slug        String    @unique
+  description String?
+  createdById String?
+  status      Status    @default(ACTIVE)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  createdBy User?  @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  blogs     Blog[]
+}
+
+model Blog {
+  id              String        @id @default(cuid())
+  title           String
+  slug            String        @unique
+  excerpt         String
+  /// HTML produced by the rich-text editor.
+  content         String        @db.Text
+  categoryId      String
+  /// Display name of the author, as typed in the CMS (separate from createdBy = the CMS user who saved it).
+  author          String
+  featuredImageId String?
+  publishStatus   PublishStatus @default(DRAFT)
+  publishedAt     DateTime      @db.Date
+  createdById     String?
+  status          Status        @default(ACTIVE)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  deletedAt       DateTime?
+
+  category      BlogCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  createdBy     User?        @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  featuredImage Media?       @relation("BlogFeaturedImage", fields: [featuredImageId], references: [id], onDelete: SetNull)
+
+  @@index([categoryId])
+  @@index([publishStatus, publishedAt])
+  @@index([createdById])
+  @@index([featuredImageId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Case studies
+// ─────────────────────────────────────────────────────────────────────────────
+
+model CaseStudy {
+  id            String        @id @default(cuid())
+  title         String
+  slug          String        @unique
+  client        String
+  /// CRM · Software Development · AI & Automation · Cloud · ITSM · Managed IT
+  category      String
+  description   String
+  imageId       String?
+  content       String        @db.Text
+  /// Technology tags, max 10.
+  tags          String[]
+  /// Up to 4 headline numbers: [{ "metric": "81%", "label": "Lead Capture Increase" }]
+  results       Json          @default("[]")
+  /// e.g. "5 min read"
+  readTime      String
+  publishStatus PublishStatus @default(DRAFT)
+  publishedAt   DateTime      @db.Date
+  createdById   String?
+  status        Status        @default(ACTIVE)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  deletedAt     DateTime?
+
+  createdBy User?  @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  image     Media? @relation("CaseStudyImage", fields: [imageId], references: [id], onDelete: SetNull)
+
+  @@index([category])
+  @@index([publishStatus, publishedAt])
+  @@index([createdById])
+  @@index([imageId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Announcements — event popups and top banners
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Announcement {
+  id          String           @id @default(cuid())
+  badge       String?
+  title       String
+  message     String
+  type        AnnouncementType @default(POPUP)
+  eventDate   DateTime?        @db.Date
+  venue       String?
+  ctaLabel    String?
+  ctaUrl      String?
+  imageId     String?
+  /// Display window, inclusive. `status` ACTIVE/INACTIVE is the on/off switch.
+  startDate   DateTime         @db.Date
+  endDate     DateTime         @db.Date
+  createdById String?
+  status      Status           @default(ACTIVE)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  deletedAt   DateTime?
+
+  createdBy User?  @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  image     Media? @relation("AnnouncementImage", fields: [imageId], references: [id], onDelete: SetNull)
+
+  @@index([type, startDate, endDate])
+  @@index([createdById])
+  @@index([imageId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Website content — ordered lists. `status` ACTIVE/INACTIVE = the "Visible on website" toggle.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model HeroSlide {
+  id          String    @id @default(cuid())
+  category    String
+  title       String
+  description String
+  imageId     String
+  logoId      String?
+  link        String?
+  sortOrder   Int       @default(0)
+  createdById String?
+  status      Status    @default(ACTIVE)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  createdBy User?  @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  logo      Media? @relation("HeroSlideLogo", fields: [logoId], references: [id], onDelete: SetNull)
+  image     Media  @relation("HeroSlideImage", fields: [imageId], references: [id], onDelete: Restrict)
+
+  @@index([sortOrder])
+  @@index([imageId])
+  @@index([logoId])
+}
+
+model Testimonial {
+  id          String    @id @default(cuid())
+  name        String
+  /// e.g. "CEO, TechFlow Solutions"
+  role        String
+  message     String
+  avatarId    String?
+  /// Website pages it appears on: home · about · culture · case-studies · industries
+  pages       String[]
+  sortOrder   Int       @default(0)
+  createdById String?
+  status      Status    @default(ACTIVE)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  createdBy User?  @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  avatar    Media? @relation("TestimonialAvatar", fields: [avatarId], references: [id], onDelete: SetNull)
+
+  @@index([sortOrder])
+  @@index([avatarId])
+}
+
+model Faq {
+  id          String    @id @default(cuid())
+  question    String
+  answer      String    @db.Text
+  /// Page/section it belongs to: General · Industries · Salesforce · Zoho · …
+  group       String
+  sortOrder   Int       @default(0)
+  createdById String?
+  status      Status    @default(ACTIVE)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  createdBy User? @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([group, sortOrder])
+}
+
+model PartnerLogo {
+  id          String           @id @default(cuid())
+  name        String
+  logoId      String
+  link        String?
+  placement   PartnerPlacement @default(PARTNER)
+  sortOrder   Int              @default(0)
+  createdById String?
+  status      Status           @default(ACTIVE)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  deletedAt   DateTime?
+
+  createdBy User? @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  logo      Media @relation("PartnerLogoImage", fields: [logoId], references: [id], onDelete: Restrict)
+
+  @@index([placement, sortOrder])
+  @@index([logoId])
+}
+
+model TeamMember {
+  id          String    @id @default(cuid())
+  name        String
+  role        String
+  bio         String
+  photoId     String?
+  linkedin    String?
+  email       String?
+  sortOrder   Int       @default(0)
+  createdById String?
+  status      Status    @default(ACTIVE)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  createdBy User?  @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  photo     Media? @relation("TeamMemberPhoto", fields: [photoId], references: [id], onDelete: SetNull)
+
+  @@index([sortOrder])
+  @@index([photoId])
+}
+
+model TimelineEvent {
+  id          String    @id @default(cuid())
+  year        Int
+  title       String
+  description String
+  sortOrder   Int       @default(0)
+  createdById String?
+  status      Status    @default(ACTIVE)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  createdBy User? @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([sortOrder])
+}
+
+model Certification {
+  id          String    @id @default(cuid())
+  title       String
+  /// Sub-heading, e.g. "Certified Ecosystem Integration"
+  type        String
+  description String
+  /// zap · check · shield · award
+  icon        String
+  sortOrder   Int       @default(0)
+  createdById String?
+  status      Status    @default(ACTIVE)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  createdBy User? @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([sortOrder])
+}
+
+model KeyStat {
+  id          String    @id @default(cuid())
+  /// Headline figure, e.g. "24/7", "12+", "100%"
+  stat        String
+  title       String
+  description String
+  /// clock · trophy · users · shield
+  icon        String
+  sortOrder   Int       @default(0)
+  createdById String?
+  status      Status    @default(ACTIVE)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  createdBy User? @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([sortOrder])
+}
+
+model GalleryImage {
+  id          String    @id @default(cuid())
+  imageId     String
+  caption     String?
+  /// "Life at Synexc" · "Bharat Dreamin 2026" · …
+  album       String
+  sortOrder   Int       @default(0)
+  createdById String?
+  status      Status    @default(ACTIVE)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  createdBy User? @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  image     Media @relation("GalleryImageImage", fields: [imageId], references: [id], onDelete: Restrict)
+
+  @@index([album, sortOrder])
+  @@index([imageId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Site settings
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Exactly one row (key = "default"): company-wide details used in the header, footer and contact page.
+model SiteSetting {
+  id            String    @id @default(cuid())
+  key           String    @unique @default("default")
+  phone         String
+  phoneHours    String?
+  email         String
+  emailNote     String?
+  /// Digits only with country code, e.g. 919910189504
+  whatsapp      String?
+  companyName   String
+  /// Multi-line (one line per row)
+  address       String
+  facebook      String?
+  linkedin      String?
+  instagram     String?
+  copyrightName String
+  privacyUrl    String?
+  termsUrl      String?
+  status        Status    @default(ACTIVE)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
+}
