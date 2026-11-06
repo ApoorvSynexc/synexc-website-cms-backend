@@ -1,8 +1,10 @@
 import crypto from 'crypto';
 import bcrypt from 'bcrypt';
 import initializeDatabase, { prisma } from '../config/database/index.js';
+import { replaceRolePermissions } from '../services/role-permission/index.js';
 import {
   DEFAULT_PERMISSIONS,
+  DEFAULT_SUPER_ADMIN,
   DEFAULT_ROLES,
   DEFAULT_SITE_SETTING,
 } from '../assets/default/index.js';
@@ -53,38 +55,45 @@ const seedRolePermissions = async () => {
   for (const def of DEFAULT_ROLES) {
     const role = await prisma.role.findUniqueOrThrow({ where: { name: def.name } });
 
-    // Admin gets everything. Other starter roles get their defaults ONLY the first time — after that the team
-    // edits them in the CMS and a re-seed must not undo it.
+    const wanted = def.permissions.map((key) => byKey.get(key)).filter((id): id is string => Boolean(id));
+
+    // Built-in roles are defined in code (assets/default/roles.ts), so every seed run puts them back exactly as
+    // defined — this is also how the Super Admin picks up any permission added later. Ordinary roles get their
+    // defaults only the first time: after that the Super Admin edits them in the CMS and a re-seed must not undo it.
     if (def.isSystem) {
-      await grant(role.id, permissions.map((p) => p.id));
+      await replaceRolePermissions(role.id, wanted);
     } else if ((await prisma.rolePermission.count({ where: { roleId: role.id } })) === 0) {
-      await grant(
-        role.id,
-        def.permissions.map((key) => byKey.get(key)).filter((id): id is string => Boolean(id)),
-      );
+      await grant(role.id, wanted);
     }
   }
   console.log('✓ role permissions seeded');
 };
 
-const seedAdminUser = async () => {
-  const email = (process.env.SEED_ADMIN_EMAIL || 'admin@synexc.com').toLowerCase();
+/** The one default user (see assets/default/super-admin.ts). Everyone else is created by it in the CMS. */
+const seedSuperAdmin = async () => {
+  const email = (process.env.SEED_SUPER_ADMIN_EMAIL || DEFAULT_SUPER_ADMIN.email).toLowerCase();
 
   if (await prisma.user.findUnique({ where: { email } })) {
-    console.log(`✓ admin user ${email} already exists (password left unchanged)`);
+    console.log(`✓ Super Admin ${email} already exists (password left unchanged)`);
     return;
   }
 
-  // No hardcoded password: use SEED_ADMIN_PASSWORD, or generate one and show it once.
-  const generated = !process.env.SEED_ADMIN_PASSWORD;
-  const password = process.env.SEED_ADMIN_PASSWORD || crypto.randomBytes(9).toString('base64url');
-  const role = await prisma.role.findUniqueOrThrow({ where: { name: 'Admin' } });
+  // No hardcoded password: use SEED_SUPER_ADMIN_PASSWORD, or generate one and show it once.
+  const generated = !process.env.SEED_SUPER_ADMIN_PASSWORD;
+  const password = process.env.SEED_SUPER_ADMIN_PASSWORD || crypto.randomBytes(9).toString('base64url');
+  const role = await prisma.role.findUniqueOrThrow({ where: { name: DEFAULT_SUPER_ADMIN.roleName } });
 
   await prisma.user.create({
-    data: { name: 'Synexc Admin', email, passwordHash: await bcrypt.hash(password, 12), roleId: role.id },
+    data: {
+      name: DEFAULT_SUPER_ADMIN.name,
+      email,
+      passwordHash: await bcrypt.hash(password, 12),
+      roleId: role.id,
+      status: DEFAULT_SUPER_ADMIN.status,
+    },
   });
 
-  console.log(`✓ admin user created: ${email}`);
+  console.log(`✓ Super Admin created: ${email}`);
   if (generated) console.log(`  generated password (shown once, change it after logging in): ${password}`);
 };
 
@@ -103,7 +112,7 @@ const main = async () => {
     await seedPermissions();
     await seedRoles();
     await seedRolePermissions();
-    await seedAdminUser();
+    await seedSuperAdmin();
     await seedSiteSetting();
     console.log('\n✅ All seeds completed successfully!');
   } catch (error) {

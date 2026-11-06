@@ -3,6 +3,8 @@ import { IRequest, IResponse, makeResponse } from '../../lib/index.js';
 import { aclGatewayPermissions } from './permissions/index.js';
 import { findPermissionKeysByRole } from '../../services/index.js';
 
+type IAclGatewayPermissions = keyof typeof aclGatewayPermissions;
+
 /** Modules every logged-in user may call without a specific permission. */
 const ALLOWED_MODULES = ['account', 'common'];
 
@@ -15,7 +17,7 @@ const aclGateway = async (req: IRequest, res: IResponse, next: NextFunction): Pr
     }
 
     const requestPath = req.path.length > 1 ? req.path.replace(/\/+$/, '') : req.path;
-    const submodule = requestPath.split('/')[1] ?? '';
+    const submodule = (requestPath.split('/')[1] ?? '') as IAclGatewayPermissions;
 
     if (!ALLOWED_MODULES.includes(submodule)) {
       const rules = aclGatewayPermissions[submodule];

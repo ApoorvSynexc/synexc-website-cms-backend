@@ -25,6 +25,7 @@ export const SUBJECT_ACTIONS: Record<string, readonly string[]> = {
   role_permission: ['read', 'update'],
 };
 
+
 export const DEFAULT_PERMISSIONS = Object.entries(SUBJECT_ACTIONS).flatMap(([subject, actions]) =>
   actions.map((action) => ({ subject, action })),
 );

@@ -6,7 +6,6 @@ import { wrapController } from '../../../../utils/index.js';
 import {
   assertMediaExists,
   findPermissionKeysByRole,
-  findPermissions,
   findUser,
   mediaLink,
   revokeOtherSessions,
@@ -25,10 +24,7 @@ const getProfile = async (req: IRequest, res: Response) => {
   const user = await findUser({ id: req.user?.id });
   if (!user) return makeResponse(req, res, 404, false, 'not_exist');
 
-  // The built-in Admin role always has every permission, regardless of the role-permission rows.
-  const keys = user.role.isSystem
-    ? (await findPermissions()).map((p) => `${p.action}:${p.subject}`)
-    : await findPermissionKeysByRole(user.roleId);
+  const keys = await findPermissionKeysByRole(user.roleId);
 
   return makeResponse(req, res, 200, true, 'fetch', {
     ...toPublicUser(user),

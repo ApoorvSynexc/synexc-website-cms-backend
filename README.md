@@ -12,15 +12,20 @@ partner logos, team, timeline, certifications, key stats, gallery), site setting
 npm install
 cp .env.example .env          # fill in DATABASE_URL, JWT_SECRET, AWS_*, FRONTEND_URL
 npx prisma migrate dev --name init   # creates the tables (first run only — review the SQL it generates)
-npm run seed                  # permissions, roles, first admin, site settings (safe to re-run)
+npm run seed                  # permissions, roles, the Super Admin user, site settings (safe to re-run)
 npm run dev                   # http://localhost:3000
 ```
 
 `FRONTEND_URL` is a comma-separated list of allowed browser origins — the CMS **and** the public website,
 e.g. `http://localhost:5173,https://www.synexc.com`.
 
-The seed creates `admin@synexc.com`. Set `SEED_ADMIN_PASSWORD` in `.env`, or leave it empty and a random
-password is printed **once** — change it after the first login.
+Built-in roles and their permissions are defined in `src/assets/default/roles.ts` — add a role there with
+`isSystem: true` and a permission list, and the seed keeps it exactly in sync. Ordinary roles are given their list only
+the first time, so edits made in the CMS survive a re-seed.
+
+The seed creates **one** user: the **Super Admin** (`superadmin@synexc.com`, defined in `src/assets/default/super-admin.ts`).
+Set `SEED_SUPER_ADMIN_PASSWORD` in `.env`, or leave it empty and a random password is printed **once** — change it after
+the first login. Everyone else is created by the Super Admin in the CMS.
 
 | Script | What it does |
 |---|---|
@@ -63,7 +68,17 @@ src/
 - 5 wrong passwords lock the account for 15 minutes.
 - Every private route passes through `authenticate` then the permission gateway
   (`src/middlewares/gateway/permissions`). A role needs one of the listed `<action>:<subject>` grants for the exact
-  path + method; the built-in **Admin** role always has everything.
+  path + method. Access comes **only** from a role's permission rows — the Super Admin simply has a row for every
+  permission (the seed re-grants them on every run, so run `npm run seed` after deploys that add permissions).
+  `isSystem` (built-in) grants nothing; it only protects a role from being renamed, deleted or having its
+  permissions edited through the API.
+- **Access control (users, roles, role-permissions) is ordinary permissions.** By default only the **Super Admin** has
+  them — the seeded Editor / Writer roles do not. The Super Admin can delegate by granting `user`, `role` and
+  `role_permission` permissions to a custom role.
+- **Delegation guard — nobody can pass on more access than they hold.** A delegated user can assign a role, or edit /
+  delete a user, only if that role's permissions are no bigger than their own; and can only *add* permissions they
+  hold themselves. So a delegate can never promote themselves, hand out the Super Admin role, or touch the Super
+  Admin account (only the Super Admin can). Removing permissions is always allowed.
 - `GET /account/my-profile` returns the user with `permissions: ["blog:create", …]` (`<subject>:<action>`), which is
   what the CMS frontend checks.
 - Adding a module = a table in the schema, a value in the `PermissionSubject` enum, the permission in

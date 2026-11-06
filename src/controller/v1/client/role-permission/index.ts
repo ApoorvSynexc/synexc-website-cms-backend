@@ -5,11 +5,12 @@ import { wrapController } from '../../../../utils/index.js';
 import {
   findPermissions,
   findRole,
+  effectivePermissionKeys,
   findRolePermissions,
   replaceRolePermissions,
 } from '../../../../services/index.js';
 
-/** Every permission that exists (the matrix rows × columns). */
+/** Every permission (the matrix rows × columns). */
 const findPermissionsHandler = async (req: IRequest, res: Response) => {
   const permissions = await findPermissions();
   return makeResponse(req, res, 200, true, 'fetch', permissions);
@@ -23,10 +24,7 @@ const findRolePermissionsHandler = async (req: IRequest, res: Response) => {
   const role = await findRole({ id: roleId });
   if (!role) return makeResponse(req, res, 404, false, 'not_exist');
 
-  // The built-in Admin role always has everything.
-  const entries = role.isSystem
-    ? (await findPermissions()).map((permission) => ({ roleId, permissionId: permission.id, permission }))
-    : await findRolePermissions(roleId);
+  const entries = await findRolePermissions(roleId);
 
   return makeResponse(req, res, 200, true, 'fetch', entries);
 };
@@ -39,9 +37,21 @@ const updateHandler = async (req: IRequest, res: Response) => {
   if (!role) return makeResponse(req, res, 404, false, 'not_exist');
   if (role.isSystem) return makeResponse(req, res, 400, false, 'system_role_locked');
 
-  const known = new Set((await findPermissions()).map((permission) => permission.id));
-  if (permissionIds.some((id) => !known.has(id))) {
+  const all = await findPermissions();
+  const byId = new Map(all.map((permission) => [permission.id, permission]));
+  if (permissionIds.some((id) => !byId.has(id))) {
     return makeResponse(req, res, 400, false, 'invalid_reference');
+  }
+
+  // Delegation guard: you can only ADD permissions that you hold yourself, so nobody can hand out (or give
+  // themselves) more access than they have. Removing is always allowed. The Super Admin holds everything.
+  const current = new Set((await findRolePermissions(roleId)).map((entry) => entry.permissionId));
+  const added = permissionIds.filter((id) => !current.has(id));
+  if (added.length > 0) {
+    const mine = await effectivePermissionKeys(req.user?.role);
+    if (added.some((id) => !mine.has(`${byId.get(id)!.action}:${byId.get(id)!.subject}`))) {
+      return makeResponse(req, res, 403, false, 'cannot_exceed_own_access');
+    }
   }
 
   const entries = await replaceRolePermissions(roleId, permissionIds, req.user?.id);

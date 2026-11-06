@@ -14,6 +14,9 @@
 //     unique values (User.email, Role.name, BlogCategory.name/slug, Blog.slug, CaseStudy.slug).
 //   • FILES: every uploaded file (image, PDF …) is one row in Media — name, size, mimetype, S3 key, and a
 //     thumbnail key for images. Other tables never store a URL; they store the Media id (…Id columns).
+//   • ACCESS CONTROL (users / roles / role-permissions) uses the same permissions as everything else. By default only
+//     the Super Admin role (isSystem) holds them; it may delegate them to a custom role, but nobody can assign or
+//     grant more access than they hold themselves. The seed creates exactly one user: the Super Admin.
 //   • single-tenant: unlike HRM there is no Tenant / tenantId.
 //   • `sortOrder` = position of an item in an ordered list on the website (the up/down arrows in the CMS).
 
@@ -102,7 +105,6 @@ model Role {
   id          String    @id @default(cuid())
   name        String    @unique
   description String?
-  /// System roles (Admin) always have every permission and cannot be edited or deleted.
   isSystem    Boolean   @default(false)
   createdById String?
   status      Status    @default(ACTIVE)

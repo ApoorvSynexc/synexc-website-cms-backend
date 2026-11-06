@@ -8,9 +8,12 @@ import {
   countUsers,
   createUser,
   deleteUser,
+  effectivePermissionKeys,
+  findFullAccessRoleIds,
   findRole,
   findUser,
   findUsersWithPagination,
+  isSubset,
   mediaConnect,
   mediaLink,
   toPublicUser,
@@ -19,8 +22,31 @@ import {
 
 const hash = (password: string) => bcrypt.hash(password, 12);
 
-/** Only someone with a built-in (system) role may hand out a built-in role. */
-const canAssignRole = (req: IRequest, role: { isSystem: boolean }) => !role.isSystem || Boolean(req.user?.role?.isSystem);
+/**
+ * Delegation guard. You may assign a role to someone, or edit / delete someone who holds it, only if that role's
+ * access is no bigger than your own — compared purely by permissions, so it makes no difference which role (built-in
+ * or custom) either side holds. A delegate therefore can never promote themselves, hand out more access than they
+ * have, or touch an account that outranks them (such as the Super Admin).
+ */
+const holdsAtLeast = async (req: IRequest, role: { id: string }): Promise<boolean> => {
+  const [mine, theirs] = await Promise.all([effectivePermissionKeys(req.user?.role), effectivePermissionKeys(role)]);
+  return isSubset(theirs, mine);
+};
+
+/**
+ * Lockout guard: at least one active user must always keep FULL access (every permission). True when this change
+ * would remove the last such user (deactivating, deleting, or moving them to a role with less access).
+ */
+const wouldLoseLastFullAccessUser = async (
+  target: { id: string; roleId: string },
+  change: { newRoleId?: string; inactive?: boolean },
+): Promise<boolean> => {
+  const fullRoleIds = await findFullAccessRoleIds();
+  if (!fullRoleIds.includes(target.roleId)) return false;
+  const keepsFullAccess = !change.inactive && (!change.newRoleId || fullRoleIds.includes(change.newRoleId));
+  if (keepsFullAccess) return false;
+  return (await countUsers({ roleId: { in: fullRoleIds }, status: 'ACTIVE', id: { not: target.id } })) === 0;
+};
 
 const createHandler = async (req: IRequest, res: Response) => {
   const { name, email, password, roleId, avatarId, status } = req.body;
@@ -28,7 +54,7 @@ const createHandler = async (req: IRequest, res: Response) => {
 
   const role = await findRole({ id: roleId });
   if (!role) return makeResponse(req, res, 400, false, 'invalid_reference');
-  if (!canAssignRole(req, role)) return makeResponse(req, res, 403, false, 'insufficient_permission');
+  if (!(await holdsAtLeast(req, role))) return makeResponse(req, res, 403, false, 'cannot_exceed_own_access');
 
   const user = await createUser({
     name,
@@ -77,6 +103,7 @@ const updateHandler = async (req: IRequest, res: Response) => {
 
   const existing = await findUser({ id });
   if (!existing) return makeResponse(req, res, 404, false, 'not_exist');
+  if (!(await holdsAtLeast(req, existing.role))) return makeResponse(req, res, 403, false, 'cannot_exceed_own_access');
 
   const isSelf = id === req.user?.id;
   // Guard against locking yourself out.
@@ -87,12 +114,10 @@ const updateHandler = async (req: IRequest, res: Response) => {
   if (roleId && roleId !== existing.roleId) {
     const role = await findRole({ id: roleId });
     if (!role) return makeResponse(req, res, 400, false, 'invalid_reference');
-    if (!canAssignRole(req, role)) return makeResponse(req, res, 403, false, 'insufficient_permission');
+    if (!(await holdsAtLeast(req, role))) return makeResponse(req, res, 403, false, 'cannot_exceed_own_access');
   }
 
-  // Demoting / deactivating the last active Admin would leave nobody able to manage the CMS.
-  const losingAdmin = existing.role.isSystem && ((roleId && roleId !== existing.roleId) || status === 'INACTIVE');
-  if (losingAdmin && (await countUsers({ role: { isSystem: true }, status: 'ACTIVE' })) <= 1) {
+  if (await wouldLoseLastFullAccessUser(existing, { newRoleId: roleId, inactive: status === 'INACTIVE' })) {
     return makeResponse(req, res, 400, false, 'last_admin');
   }
 
@@ -118,8 +143,9 @@ const deleteHandler = async (req: IRequest, res: Response) => {
 
   const user = await findUser({ id });
   if (!user) return makeResponse(req, res, 404, false, 'not_exist');
+  if (!(await holdsAtLeast(req, user.role))) return makeResponse(req, res, 403, false, 'cannot_exceed_own_access');
 
-  if (user.role.isSystem && (await countUsers({ role: { isSystem: true }, status: 'ACTIVE' })) <= 1) {
+  if (await wouldLoseLastFullAccessUser(user, { inactive: true })) {
     return makeResponse(req, res, 400, false, 'last_admin');
   }
 

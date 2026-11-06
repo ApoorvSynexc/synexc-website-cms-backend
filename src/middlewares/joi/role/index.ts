@@ -2,14 +2,17 @@ import Joi from 'joi';
 import { validateRequest } from '../validate.js';
 import { idRule } from '../common.js';
 
-/** "Admin" is reserved for the system role. */
+/** "Super Admin" (and plain "Admin", to avoid confusion) are reserved for the built-in role. */
 const roleName = Joi.string()
   .trim()
   .max(80)
-  .custom((value: string, helpers) => (value.toLowerCase() === 'admin' ? helpers.error('name.reserved') : value))
+  .custom((value: string, helpers) => {
+    const normalised = value.toLowerCase().replace(/\s+/g, ' ');
+    return ['admin', 'super admin', 'superadmin'].includes(normalised) ? helpers.error('name.reserved') : value;
+  })
   .messages({
     'string.max': 'Role name must be at most 80 characters',
-    'name.reserved': 'The name "Admin" is reserved',
+    'name.reserved': 'That name is reserved for the Super Admin role',
     'string.empty': 'Role name is required',
   });
 
