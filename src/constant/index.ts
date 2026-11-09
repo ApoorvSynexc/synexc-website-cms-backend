@@ -14,13 +14,11 @@ const AWS_S3_BUCKET = String(process.env.AWS_S3_BUCKET || '');
 const AWS_S3_BASE_FOLDER = String(process.env.AWS_S3_BASE_FOLDER || 'uploads');
 const AWS_ACCESS_KEY_ID = String(process.env.AWS_ACCESS_KEY_ID || '');
 const AWS_SECRET_ACCESS_KEY = String(process.env.AWS_SECRET_ACCESS_KEY || '');
-// Optional: point the S3 client at MinIO / a local S3-compatible server instead of AWS.
-const AWS_S3_ENDPOINT = String(process.env.AWS_S3_ENDPOINT || '');
 // Public base URL files are served from (a CDN in front of the bucket, or the bucket itself).
 // Media rows store only the S3 *key*; the API prefixes this when sending files to clients.
 const MEDIA_BASE_URL = String(
   process.env.MEDIA_BASE_URL ||
-    (AWS_S3_ENDPOINT ? `${AWS_S3_ENDPOINT}/${AWS_S3_BUCKET}` : `https://${AWS_S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com`),
+    `https://${AWS_S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com`,
 ).replace(/\/+$/, '');
 
 // Status Constants — every table carries one of these in its `status` column
@@ -48,7 +46,6 @@ export {
   AWS_S3_BASE_FOLDER,
   AWS_ACCESS_KEY_ID,
   AWS_SECRET_ACCESS_KEY,
-  AWS_S3_ENDPOINT,
   MEDIA_BASE_URL,
   LANGUAGE,
   STATUS,

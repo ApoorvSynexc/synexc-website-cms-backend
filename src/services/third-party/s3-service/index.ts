@@ -1,7 +1,13 @@
 import path from 'path';
 import sharp from 'sharp';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
-import { AWS_REGION, AWS_S3_BUCKET, AWS_S3_BASE_FOLDER, AWS_S3_ENDPOINT } from '../../../constant/index.js';
+import {
+  AWS_REGION,
+  AWS_S3_BUCKET,
+  AWS_S3_BASE_FOLDER,
+  AWS_ACCESS_KEY_ID,
+  AWS_SECRET_ACCESS_KEY,
+} from '../../../constant/index.js';
 
 interface UploadObjectParams {
   file: Buffer;
@@ -22,8 +28,9 @@ interface UploadResponse {
 
 const s3Client = new S3Client({
   region: AWS_REGION,
-  // Only when pointing at MinIO / a local S3-compatible server.
-  ...(AWS_S3_ENDPOINT && { endpoint: AWS_S3_ENDPOINT, forcePathStyle: true }),
+  ...(AWS_ACCESS_KEY_ID && AWS_SECRET_ACCESS_KEY && {
+    credentials: { accessKeyId: AWS_ACCESS_KEY_ID, secretAccessKey: AWS_SECRET_ACCESS_KEY },
+  }),
 });
 
 /** Raster images get a thumbnail. SVG and PDF are served as they are. */

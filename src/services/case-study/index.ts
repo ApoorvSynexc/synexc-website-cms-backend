@@ -18,13 +18,15 @@ const deleteCaseStudy = (id: string): Promise<CaseStudy> =>
 const findCaseStudy = (where: Prisma.CaseStudyWhereInput) =>
   db('find case study', () => prisma.caseStudy.findFirst({ where: { ...NOT_DELETED, ...where }, include }));
 
-const findCaseStudiesWithPagination = (where: Prisma.CaseStudyWhereInput, skip: number, take: number) =>
+/** `omitContent` skips the (large) HTML body — used by public lists, which only need the card fields. */
+const findCaseStudiesWithPagination = (where: Prisma.CaseStudyWhereInput, skip: number, take: number, omitContent = false) =>
   db('find case studies', async () => {
     const filter = { ...NOT_DELETED, ...where };
     const [caseStudies, total] = await Promise.all([
       prisma.caseStudy.findMany({
         where: filter,
         include,
+        ...(omitContent && { omit: { content: true } }),
         orderBy: [{ publishedAt: 'desc' }, { createdAt: 'desc' }],
         skip,
         take,

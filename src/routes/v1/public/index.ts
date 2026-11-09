@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { NextFunction, Request, Response, Router } from 'express';
 import { publicController } from '../../../controller/index.js';
 
 /**
@@ -7,6 +7,24 @@ import { publicController } from '../../../controller/index.js';
  * /gallery-image/list?album=Life%20at%20Synexc
  */
 const router = Router();
+
+/**
+ * Let browsers and the website's CDN reuse responses briefly, so a busy site does not hit the database on every
+ * page view. Content edited in the CMS shows up within CACHE_SECONDS. Errors are never cached.
+ * Set PUBLIC_CACHE_SECONDS=0 to switch caching off.
+ */
+const CACHE_SECONDS = Number(process.env.PUBLIC_CACHE_SECONDS ?? 60);
+router.use((req: Request, res: Response, next: NextFunction) => {
+  if (CACHE_SECONDS > 0) {
+    res.setHeader('Cache-Control', `public, max-age=${CACHE_SECONDS}, stale-while-revalidate=${CACHE_SECONDS * 5}`);
+    const send = res.send.bind(res);
+    res.send = (body) => {
+      if (res.statusCode >= 400) res.setHeader('Cache-Control', 'no-store');
+      return send(body);
+    };
+  }
+  next();
+});
 
 router.get('/blog/list', publicController.blogList);
 router.get('/blog', publicController.blogDetail); // ?slug=

@@ -20,11 +20,19 @@ const deleteBlog = (id: string): Promise<Blog> =>
 const findBlog = (where: Prisma.BlogWhereInput) =>
   db('find blog', () => prisma.blog.findFirst({ where: { ...NOT_DELETED, ...where }, include }));
 
-const findBlogsWithPagination = (where: Prisma.BlogWhereInput, skip: number, take: number) =>
+/** `omitContent` skips the (large) HTML body — used by public lists, which only need the card fields. */
+const findBlogsWithPagination = (where: Prisma.BlogWhereInput, skip: number, take: number, omitContent = false) =>
   db('find blogs', async () => {
     const filter = { ...NOT_DELETED, ...where };
     const [blogs, total] = await Promise.all([
-      prisma.blog.findMany({ where: filter, include, orderBy: [{ publishedAt: 'desc' }, { createdAt: 'desc' }], skip, take }),
+      prisma.blog.findMany({
+        where: filter,
+        include,
+        ...(omitContent && { omit: { content: true } }),
+        orderBy: [{ publishedAt: 'desc' }, { createdAt: 'desc' }],
+        skip,
+        take,
+      }),
       prisma.blog.count({ where: filter }),
     ]);
     return { blogs, total };

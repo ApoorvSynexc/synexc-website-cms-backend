@@ -87,6 +87,9 @@ src/
 ## Public website API (`/api/v1/public`, no login)
 
 Only returns content that is switched on; articles must be published and past their publish date.
+`blog/list` and `case-study/list` return card fields only (no `content`); fetch the body with `blog?slug=` /
+`case-study?slug=`. Successful responses carry `Cache-Control: public, max-age=60` (change with
+`PUBLIC_CACHE_SECONDS`, `0` = off); errors are never cached.
 
 `blog/list` · `blog?slug=` · `blog-category/list` · `case-study/list` · `case-study?slug=` · `announcement/list`
 (live today) · `site-setting` · `hero-slide/list` · `testimonial/list?page=` · `faq/list?group=` ·
@@ -105,7 +108,7 @@ images, a 400px WebP thumbnail key (`thumbnailUrl`). Other tables never store a 
    stored S3 keys into full URLs using `MEDIA_BASE_URL`, so clients never need to know where files live.
 
 Unknown ids are rejected (`invalid_reference`). Required pictures: hero slide image, partner logo, gallery image.
-The bucket needs public read (or a CDN in front). For local development set `AWS_S3_ENDPOINT` to MinIO.
+The bucket needs public read (or a CDN in front).
 
 ## Notes
 
