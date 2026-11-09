@@ -9,6 +9,7 @@ import {
   findBlog,
   findBlogCategory,
   findBlogsWithPagination,
+  getBlogStats,
   mediaConnect,
   mediaLink,
   uniqueSlug,
@@ -58,6 +59,9 @@ const findBlogsHandler = async (req: IRequest, res: Response) => {
   return makeResponse(req, res, 200, true, 'fetch', blogs, buildMeta(page, limit, total));
 };
 
+const statsHandler = async (req: IRequest, res: Response) =>
+  makeResponse(req, res, 200, true, 'fetch', await getBlogStats());
+
 const findBlogHandler = async (req: IRequest, res: Response) => {
   const blog = await findBlog({ id: String(req.query.id) });
   if (!blog) return makeResponse(req, res, 404, false, 'not_exist');
@@ -104,6 +108,7 @@ const deleteHandler = async (req: IRequest, res: Response) => {
 export const blogController = wrapController({
   createHandler,
   findBlogsHandler,
+  statsHandler,
   findBlogHandler,
   updateHandler,
   deleteHandler,

@@ -10,6 +10,11 @@ const blogPermissions = [
     permissions: ['read:blog'],
   },
   {
+    path: '/blog/stats',
+    method: 'GET',
+    permissions: ['read:blog'],
+  },
+  {
     path: '/blog',
     method: 'GET',
     permissions: ['read:blog'],
